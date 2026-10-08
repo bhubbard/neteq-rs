@@ -1,0 +1,15 @@
+# Rust artifacts
+target/
+Cargo.lock
+coverage_report/
+lcov.info
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Audio outputs
+*.wav
+*.pcm

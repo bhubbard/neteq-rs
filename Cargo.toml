@@ -1,0 +1,30 @@
+[workspace]
+members = [
+    "crates/neteq-core",
+    "crates/neteq-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["NetEQ Contributors", "Brandon Hubbard <bhubbard@users.noreply.github.com>"]
+license = "BSD-3-Clause"
+repository = "https://github.com/bhubbard/neteq-rs"
+homepage = "https://github.com/bhubbard/neteq-rs"
+documentation = "https://github.com/bhubbard/neteq-rs#readme"
+readme = "README.md"
+keywords = ["webrtc", "neteq", "jitter-buffer", "voice-ai", "audio-dsp"]
+categories = ["multimedia::audio", "network-programming"]
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+anyhow = "1.0"
+thiserror = "1.0"
+colored = "2.1"
+hound = "3.5"
+rand = "0.8"
+tempfile = "3.12"
+indicatif = "0.17"

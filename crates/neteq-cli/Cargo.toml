@@ -1,0 +1,22 @@
+[package]
+name = "neteq-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI tool and simulation bench for NetEQ adaptive audio jitter buffer"
+
+[[bin]]
+name = "neteq"
+path = "src/main.rs"
+
+[dependencies]
+neteq-core = { path = "../neteq-core" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+colored.workspace = true
+anyhow.workspace = true
+hound.workspace = true
+rand.workspace = true
+indicatif.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "neteq-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Pure Rust port of WebRTC NetEQ: adaptive jitter buffer, time-stretching, packet loss concealment, and comfort noise"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+colored.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+hound.workspace = true
+tempfile.workspace = true
