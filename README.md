@@ -49,23 +49,25 @@ flowchart TD
 ```
 
 ### 1. Delay Manager & Jitter Tracking
-- Tracks inter-arrival time (IAT) histograms across sliding packet arrival windows.
+- Tracks inter-arrival time (IAT) histograms across sliding packet arrival windows (`VecDeque` ring buffer) and RFC 3550 smoothed network jitter (`J += (|D| - J) / 16`).
 - Dynamically estimates the 95th percentile jitter delay to set the optimal buffer target.
-- Smoothly adapts the target buffer window without jarring latency jumps.
+- Uses RFC 1982 serial number arithmetic for wraparound-safe 32-bit RTP timestamp and 16-bit sequence number ordering.
 
 ### 2. WSOLA Time-Stretching (Accelerate & Preemptive Expand)
-- **Accelerate**: When the jitter buffer has accumulated excess latency above target, NetEQ detects the speech fundamental frequency (F0) via normalized cross-correlation and blends adjacent pitch cycles using Waveform Similarity Overlap-Add (WSOLA). Latency drains smoothly with zero audible pitch-shift.
+- **Accelerate & Fast Accelerate**: When the jitter buffer has accumulated excess latency above target, NetEQ detects the speech fundamental frequency ($F_0$) via $O(1)$ prefix-sum Normalized Cross-Correlation (NCC) and blends adjacent pitch cycles using raised-cosine (Hann) Waveform Similarity Overlap-Add (WSOLA). Latency drains smoothly with zero audible pitch-shift.
 - **Preemptive Expand**: When the buffer is running low, NetEQ lengthens speech by repeating a phase-aligned pitch period, building cushion against imminent network underruns.
 
 ### 3. Packet Loss Concealment (PLC / Expand)
 - Extrapolates speech continuation from the sync buffer's past history when a packet drops or arrives late.
-- Synthesizes pitch-synchronous waveforms with progressive exponential energy decay (`0.96^k`) so speech fades naturally rather than producing harsh digital pops.
+- Synthesizes phase-continuous pitch-synchronous waveforms with raised-cosine loop crossfading and continuous per-sample exponential energy decay so speech fades naturally without frame-boundary stair-stepping or clicks.
 
-### 4. Comfort Noise Generation (CNG)
-- If packet loss exceeds maximum consecutive concealment frames or silence insertion descriptors (SID) are encountered, generates pink-noise filtered comfort noise matched to background room acoustics.
+### 4. Voice Activity Detection (VAD) & Comfort Noise Generation (CNG)
+- Includes an adaptive energy + zero-crossing-rate (ZCR) `VoiceActivityDetector` that tracks background noise floors during non-speech segments and supports explicit RFC 3389 Silence Insertion Descriptor (SID) packets (`AudioPacket::new_sid`).
+- Generates pink-noise filtered comfort noise matched to the speaker's acoustic noise floor during extended losses or silence.
 
-### 5. Smooth Merge
-- When recovering from packet loss or comfort noise back to live audio packets, applies a phase-aligned crossfade over the transition window, eliminating acoustic boundaries and boundary clicks.
+### 5. Smooth Merge & Objective VoIP Quality Metrics (`metrics`)
+- When recovering from packet loss or comfort noise back to live audio packets, applies a raised-cosine crossfade over the transition window, eliminating acoustic boundaries and boundary clicks.
+- Provides built-in ITU-T G.107 E-model $R$-factor and `MOS-LQ` (1.0–4.5) estimation, Segmental SNR (`SegSNR`), and boundary click detection (`analyze_audio_quality`).
 
 ---
 

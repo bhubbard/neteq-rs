@@ -1,9 +1,12 @@
+use std::f32::consts::PI;
+
 use crate::time_stretch::TimeStretch;
 
 pub struct PacketLossConcealment {
     time_stretch: TimeStretch,
     consecutive_expands: usize,
     decay_factor: f32,
+    phase_offset: usize,
 }
 
 impl PacketLossConcealment {
@@ -11,41 +14,65 @@ impl PacketLossConcealment {
         Self {
             time_stretch: TimeStretch::new(sample_rate),
             consecutive_expands: 0,
-            decay_factor: 0.96, // Gradual energy decay per concealed frame
+            decay_factor: 0.94, // Progressive energy decay per concealed frame
+            phase_offset: 0,
         }
     }
 
-    /// Reset consecutive expand counter on normal packet receipt
+    /// Reset consecutive expand counter and phase tracking on normal packet receipt
     pub fn reset(&mut self) {
         self.consecutive_expands = 0;
+        self.phase_offset = 0;
     }
 
-    /// Generate concealed audio frame of `output_len` samples using history buffer
+    /// Generate concealed audio frame of `output_len` samples using history buffer.
+    ///
+    /// Preserves pitch-period phase continuity across multiple consecutive lost frames
+    /// and applies smooth per-sample exponential decay with raised-cosine loop crossfading
+    /// to eliminate boundary clicks.
     pub fn generate_concealment(&mut self, history: &[i16], output_len: usize) -> Vec<i16> {
+        let prev_expands = self.consecutive_expands;
         self.consecutive_expands += 1;
-        let mut output = Vec::with_capacity(output_len);
 
-        if history.is_empty() {
+        if history.is_empty() || output_len == 0 {
             return vec![0; output_len];
         }
 
-        // Determine pitch period from recent history
-        let pitch_lag = self.time_stretch.estimate_pitch_lag(history);
+        // Estimate pitch period and voicing clarity from history
+        let (pitch_lag, _clarity) = self.time_stretch.estimate_pitch_lag_and_clarity(history);
         let lag = pitch_lag.max(20).min(history.len());
 
         // Extract pitch cycle template from the tail of history
         let template_start = history.len().saturating_sub(lag);
         let template = &history[template_start..];
+        let t_len = template.len().max(1);
 
-        // Overall attenuation based on consecutive lost frames
-        let attenuation = self.decay_factor.powi(self.consecutive_expands as i32);
+        // Crossfade length at the loop wrap boundary to avoid discontinuity between template[t_len-1] and template[0]
+        let xfade_len = (t_len / 8).clamp(1, 16);
+        let prefix_start = template_start.saturating_sub(xfade_len);
+        let pre_template = &history[prefix_start..template_start];
 
+        let mut output = Vec::with_capacity(output_len);
         for i in 0..output_len {
-            let sample = template[i % template.len()] as f32;
-            let decayed = (sample * attenuation).round() as i16;
+            let pos = (self.phase_offset + i) % t_len;
+            let raw_sample = if pos < pre_template.len() {
+                // Smoothly blend loop wrap boundary using the samples immediately preceding template_start
+                let alpha = 0.5 * (1.0 - (PI * (pos as f32) / (pre_template.len() as f32)).cos());
+                (1.0 - alpha) * (pre_template[pos] as f32) + alpha * (template[pos] as f32)
+            } else {
+                template[pos] as f32
+            };
+
+            // Continuous per-sample exponential envelope attenuation across consecutive frames
+            let fractional_frame = (prev_expands as f32) + ((i + 1) as f32) / (output_len as f32);
+            let attenuation = self.decay_factor.powf(fractional_frame);
+            let decayed = (raw_sample * attenuation)
+                .round()
+                .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
             output.push(decayed);
         }
 
+        self.phase_offset = (self.phase_offset + output_len) % t_len;
         output
     }
 
@@ -63,7 +90,8 @@ mod tests {
         let mut plc = PacketLossConcealment::new(16000);
         let mut history = Vec::new();
         for i in 0..640 {
-            history.push((i % 100) as i16 * 100);
+            let s = ((2.0 * std::f32::consts::PI * (i as f32) / 100.0).sin() * 12000.0) as i16;
+            history.push(s);
         }
 
         let f1 = plc.generate_concealment(&history, 160);

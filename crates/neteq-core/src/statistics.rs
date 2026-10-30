@@ -1,4 +1,5 @@
 use crate::decision_logic::NetEqOperation;
+use crate::metrics::estimate_mos_lq;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -19,6 +20,10 @@ pub struct NetEqStats {
     pub target_delay_ms: f64,
     /// Estimated current buffer delay in milliseconds
     pub current_delay_ms: f64,
+    /// RFC 3550 smoothed inter-arrival jitter in milliseconds
+    pub jitter_ms: f64,
+    /// Estimated ITU-T G.107 E-model Listening-Quality MOS (1.0 to 4.5)
+    pub mos_lq: f64,
     /// Packet loss / concealment rate (0.0 to 1.0)
     pub packet_loss_rate: f64,
     /// Acceleration rate (0.0 to 1.0)
@@ -80,6 +85,15 @@ impl StatisticsTracker {
         target_delay_frames: usize,
         current_buffer_frames: usize,
     ) -> NetEqStats {
+        self.snapshot_with_jitter(target_delay_frames, current_buffer_frames, 0.0)
+    }
+
+    pub fn snapshot_with_jitter(
+        &self,
+        target_delay_frames: usize,
+        current_buffer_frames: usize,
+        jitter_frames: f64,
+    ) -> NetEqStats {
         let total_frames = self.normal_frames
             + self.accelerated_frames
             + self.preemptive_expanded_frames
@@ -90,6 +104,7 @@ impl StatisticsTracker {
         let frame_ms = (self.frame_size_samples as f64 / self.sample_rate as f64) * 1000.0;
         let target_delay_ms = target_delay_frames as f64 * frame_ms;
         let current_delay_ms = current_buffer_frames as f64 * frame_ms;
+        let jitter_ms = jitter_frames * frame_ms;
 
         let (loss_rate, accelerate_rate, expand_rate) = if total_frames > 0 {
             let tf = total_frames as f64;
@@ -102,6 +117,8 @@ impl StatisticsTracker {
             (0.0, 0.0, 0.0)
         };
 
+        let mos_lq = estimate_mos_lq(target_delay_ms, jitter_ms, loss_rate);
+
         NetEqStats {
             packets_received: self.packets_received,
             packets_discarded: self.packets_discarded,
@@ -113,6 +130,8 @@ impl StatisticsTracker {
             merged_frames: self.merged_frames,
             target_delay_ms,
             current_delay_ms,
+            jitter_ms,
+            mos_lq,
             packet_loss_rate: loss_rate,
             accelerate_rate,
             expand_rate,

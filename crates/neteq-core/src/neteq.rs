@@ -1,4 +1,4 @@
-use crate::cng::ComfortNoiseGenerator;
+use crate::cng::{frame_rms, ComfortNoiseGenerator, VoiceActivityDetector};
 use crate::decision_logic::{DecisionLogic, DecisionLogicConfig, NetEqOperation};
 use crate::delay_manager::{DelayManager, DelayManagerConfig};
 use crate::packet::AudioPacket;
@@ -62,6 +62,7 @@ pub struct NetEq {
     time_stretch: TimeStretch,
     plc: PacketLossConcealment,
     cng: ComfortNoiseGenerator,
+    vad: VoiceActivityDetector,
     statistics: StatisticsTracker,
     playout_timestamp: u32,
     initialized: bool,
@@ -91,6 +92,7 @@ impl NetEq {
             time_stretch: TimeStretch::new(config.sample_rate),
             plc: PacketLossConcealment::new(config.sample_rate),
             cng: ComfortNoiseGenerator::new(1337),
+            vad: VoiceActivityDetector::default(),
             statistics: StatisticsTracker::new(config.sample_rate, frame_size_samples),
             playout_timestamp: 0,
             initialized: false,
@@ -103,7 +105,22 @@ impl NetEq {
     /// Insert an incoming audio packet into the jitter buffer
     pub fn insert_packet(&mut self, packet: AudioPacket) -> Result<(), NetEqError> {
         self.statistics.record_packet_received();
-        self.delay_manager.update_packet_arrival(self.tick);
+        self.delay_manager.update_packet_arrival_with_rtp(
+            self.tick,
+            packet.timestamp,
+            self.frame_size_samples,
+        );
+
+        // If this is an explicit RFC 3389 SID packet, update comfort noise floor
+        if packet.is_sid {
+            if packet.payload.len() == 1 {
+                // Single-sample RMS indicator or level
+                self.cng.update_from_sid_rms(packet.payload[0].unsigned_abs() as f32);
+            } else if !packet.payload.is_empty() {
+                self.cng.update_from_sid_rms(frame_rms(&packet.payload));
+            }
+            return Ok(());
+        }
 
         if self.initialized {
             // Check if packet is too old (older than current playout timestamp)
@@ -134,11 +151,11 @@ impl NetEq {
 
         // Keep generating audio frames until the sync buffer has enough samples
         while self.sync_buffer.future_len() < output.len() {
-            let buffer_frames = if self.frame_size_samples > 0 {
-                self.packet_buffer.total_samples() / self.frame_size_samples
-            } else {
-                0
-            };
+            let buffer_frames = self
+                .packet_buffer
+                .total_samples()
+                .checked_div(self.frame_size_samples)
+                .unwrap_or(0);
 
             // First packet initialization
             if !self.initialized {
@@ -165,8 +182,19 @@ impl NetEq {
             let has_packet = match self.packet_buffer.peek_timestamp() {
                 Some(ts) => {
                     let diff = ts.wrapping_sub(self.playout_timestamp);
-                    // Match if timestamp matches or is within 1 frame tolerance
-                    diff <= self.config.decision_config.timestamp_tolerance
+                    let tolerance = if matches!(
+                        self.last_op,
+                        NetEqOperation::Expand | NetEqOperation::ComfortNoise
+                    ) {
+                        (self.decision_logic.consecutive_expands() as u32)
+                            .saturating_mul(self.frame_size_samples as u32)
+                            .saturating_add(self.config.decision_config.timestamp_tolerance)
+                    } else {
+                        (self.frame_size_samples as u32)
+                            .saturating_sub(1)
+                            .min(self.config.decision_config.timestamp_tolerance)
+                    };
+                    diff <= tolerance
                 }
                 None => false,
             };
@@ -182,24 +210,47 @@ impl NetEq {
             match op {
                 NetEqOperation::Normal => {
                     if let Some(packet) = self.packet_buffer.get_next_packet() {
+                        if !self.vad.is_speech(&packet.payload) {
+                            self.cng.update_energy(frame_rms(&packet.payload));
+                        }
                         self.sync_buffer.push_future(&packet.payload);
-                        self.playout_timestamp = self.playout_timestamp.wrapping_add(packet.payload.len() as u32);
+                        self.playout_timestamp =
+                            packet.timestamp.wrapping_add(packet.payload.len() as u32);
                         self.plc.reset();
                     }
                 }
                 NetEqOperation::Accelerate => {
                     if let Some(packet) = self.packet_buffer.get_next_packet() {
-                        let accelerated = self.time_stretch.accelerate(&packet.payload);
+                        if !self.vad.is_speech(&packet.payload) {
+                            self.cng.update_energy(frame_rms(&packet.payload));
+                        }
+                        let history = self.sync_buffer.all_history();
+                        let target = self.delay_manager.target_delay_frames();
+                        let accelerated = if buffer_frames > target.saturating_mul(2) + 4 {
+                            self.time_stretch
+                                .fast_accelerate(&history, &packet.payload)
+                        } else {
+                            self.time_stretch
+                                .accelerate_with_history(&history, &packet.payload)
+                        };
                         self.sync_buffer.push_future(&accelerated);
-                        self.playout_timestamp = self.playout_timestamp.wrapping_add(packet.payload.len() as u32);
+                        self.playout_timestamp =
+                            packet.timestamp.wrapping_add(packet.payload.len() as u32);
                         self.plc.reset();
                     }
                 }
                 NetEqOperation::PreemptiveExpand => {
                     if let Some(packet) = self.packet_buffer.get_next_packet() {
-                        let expanded = self.time_stretch.preemptive_expand(&packet.payload);
+                        if !self.vad.is_speech(&packet.payload) {
+                            self.cng.update_energy(frame_rms(&packet.payload));
+                        }
+                        let history = self.sync_buffer.all_history();
+                        let expanded = self
+                            .time_stretch
+                            .preemptive_expand_with_history(&history, &packet.payload);
                         self.sync_buffer.push_future(&expanded);
-                        self.playout_timestamp = self.playout_timestamp.wrapping_add(packet.payload.len() as u32);
+                        self.playout_timestamp =
+                            packet.timestamp.wrapping_add(packet.payload.len() as u32);
                         self.plc.reset();
                     }
                 }
@@ -208,29 +259,45 @@ impl NetEq {
                     let history = self.sync_buffer.all_history();
                     let concealed = self.plc.generate_concealment(&history, self.frame_size_samples);
                     self.sync_buffer.push_future(&concealed);
-                    self.playout_timestamp = self.playout_timestamp.wrapping_add(self.frame_size_samples as u32);
+                    // Only advance playout_timestamp when bridging a gap toward an already-buffered
+                    // future packet; when the buffer is empty (jitter underrun), hold playout_timestamp
+                    // so delayed packets arriving shortly after are buffered rather than discarded as late.
+                    if !self.packet_buffer.is_empty() {
+                        self.playout_timestamp =
+                            self.playout_timestamp.wrapping_add(self.frame_size_samples as u32);
+                    }
                 }
                 NetEqOperation::ComfortNoise => {
                     let noise = self.cng.generate(self.frame_size_samples);
                     self.sync_buffer.push_future(&noise);
-                    self.playout_timestamp = self.playout_timestamp.wrapping_add(self.frame_size_samples as u32);
+                    if !self.packet_buffer.is_empty() {
+                        self.playout_timestamp =
+                            self.playout_timestamp.wrapping_add(self.frame_size_samples as u32);
+                    }
                 }
                 NetEqOperation::Merge => {
                     if let Some(packet) = self.packet_buffer.get_next_packet() {
+                        if !self.vad.is_speech(&packet.payload) {
+                            self.cng.update_energy(frame_rms(&packet.payload));
+                        }
                         let merge_len = (self.frame_size_samples / 2).min(packet.payload.len());
                         let history = self.sync_buffer.get_history(merge_len);
                         let mut merged_payload = packet.payload.clone();
 
-                        if history.len() == merge_len {
+                        if history.len() == merge_len && merge_len > 0 {
                             for i in 0..merge_len {
-                                let alpha = i as f32 / merge_len as f32;
-                                let blended = ((1.0 - alpha) * (history[i] as f32) + alpha * (packet.payload[i] as f32)).round() as i16;
+                                let phase = (i as f32) / (merge_len as f32);
+                                let alpha = 0.5 * (1.0 - (std::f32::consts::PI * phase).cos());
+                                let blended = ((1.0 - alpha) * (history[i] as f32)
+                                    + alpha * (packet.payload[i] as f32))
+                                    .round() as i16;
                                 merged_payload[i] = blended;
                             }
                         }
 
                         self.sync_buffer.push_future(&merged_payload);
-                        self.playout_timestamp = self.playout_timestamp.wrapping_add(packet.payload.len() as u32);
+                        self.playout_timestamp =
+                            packet.timestamp.wrapping_add(packet.payload.len() as u32);
                         self.plc.reset();
                     }
                 }
@@ -261,15 +328,16 @@ impl NetEq {
 
     /// Retrieve real-time performance statistics
     pub fn stats(&self) -> NetEqStats {
-        let buffer_frames = if self.frame_size_samples > 0 {
-            self.packet_buffer.total_samples() / self.frame_size_samples
-        } else {
-            0
-        };
+        let buffer_frames = self
+            .packet_buffer
+            .total_samples()
+            .checked_div(self.frame_size_samples)
+            .unwrap_or(0);
 
-        self.statistics.snapshot(
+        self.statistics.snapshot_with_jitter(
             self.delay_manager.target_delay_frames(),
             buffer_frames,
+            self.delay_manager.jitter_frames(),
         )
     }
 
@@ -284,6 +352,7 @@ impl NetEq {
         self.sync_buffer.flush();
         self.plc.reset();
         self.decision_logic.reset();
+        self.delay_manager.reset();
         self.statistics.reset();
         self.initialized = false;
         self.playout_timestamp = 0;
@@ -348,5 +417,45 @@ mod tests {
         neteq.insert_packet(AudioPacket::new(320, 2, vec![2000; frame_samples])).unwrap();
         let op_merge = neteq.get_audio(&mut out).unwrap();
         assert_eq!(op_merge, NetEqOperation::Merge);
+    }
+
+    #[test]
+    fn test_neteq_prebuffered_gap_triggers_plc() {
+        let mut neteq = NetEq::new(NetEqConfig::default()).unwrap();
+        let frame_samples = 160;
+
+        // Both Packet 0 (ts=0) and Packet 2 (ts=320) arrive before playout; Packet 1 (ts=160) was lost
+        neteq
+            .insert_packet(AudioPacket::new(0, 0, vec![3000; frame_samples]))
+            .unwrap();
+        neteq
+            .insert_packet(AudioPacket::new(320, 2, vec![3000; frame_samples]))
+            .unwrap();
+
+        let mut out = vec![0i16; frame_samples];
+        // Frame 0: Normal playout of Packet 0
+        let op0 = neteq.get_audio(&mut out).unwrap();
+        assert_eq!(op0, NetEqOperation::Normal);
+
+        // Frame 1 (ts=160): Must conceal missing Packet 1 via Expand, NOT skip to Packet 2
+        let op1 = neteq.get_audio(&mut out).unwrap();
+        assert_eq!(op1, NetEqOperation::Expand);
+
+        // Frame 2 (ts=320): Merges smoothly into Packet 2
+        let op2 = neteq.get_audio(&mut out).unwrap();
+        assert_eq!(op2, NetEqOperation::Merge);
+    }
+
+    #[test]
+    fn test_neteq_sid_and_f32_output() {
+        let mut neteq = NetEq::new(NetEqConfig::default()).unwrap();
+        // Insert an RFC 3389 SID packet
+        let sid = AudioPacket::new_sid(0, 0, 120);
+        neteq.insert_packet(sid).unwrap();
+
+        let mut out_f32 = vec![0.0f32; 160];
+        let op = neteq.get_audio_f32(&mut out_f32).unwrap();
+        assert_eq!(op, NetEqOperation::ComfortNoise);
+        assert!(out_f32.iter().all(|&x| (-1.0..=1.0).contains(&x)));
     }
 }

@@ -9,6 +9,7 @@
 pub mod cng;
 pub mod decision_logic;
 pub mod delay_manager;
+pub mod metrics;
 pub mod neteq;
 pub mod packet;
 pub mod packet_buffer;
@@ -17,11 +18,15 @@ pub mod statistics;
 pub mod sync_buffer;
 pub mod time_stretch;
 
-pub use cng::ComfortNoiseGenerator;
+pub use cng::{frame_rms, zero_crossing_rate, ComfortNoiseGenerator, VoiceActivityDetector};
 pub use decision_logic::{DecisionLogic, DecisionLogicConfig, NetEqOperation};
 pub use delay_manager::{DelayDecision, DelayManager, DelayManagerConfig};
+pub use metrics::{
+    analyze_audio_quality, detect_boundary_clicks, estimate_mos_lq, estimate_r_factor,
+    segmental_snr_db, snr_db, AudioQualityReport,
+};
 pub use neteq::{NetEq, NetEqConfig, NetEqError};
-pub use packet::AudioPacket;
+pub use packet::{rtp_sequence_cmp, rtp_timestamp_cmp, AudioPacket};
 pub use packet_buffer::PacketBuffer;
 pub use plc::PacketLossConcealment;
 pub use statistics::{NetEqStats, StatisticsTracker};
@@ -50,10 +55,10 @@ mod tests {
         }
 
         // 1. Deliver first 5 frames sequentially
-        for i in 0..5 {
+        for (i, frame) in sine_frames.iter().enumerate().take(5) {
             let ts = (i * frame_size) as u32;
             neteq
-                .insert_packet(AudioPacket::new(ts, i as u16, sine_frames[i].clone()))
+                .insert_packet(AudioPacket::new(ts, i as u16, frame.clone()))
                 .expect("Failed to insert packet");
         }
 
@@ -72,9 +77,9 @@ mod tests {
         }
 
         // 3. Resume streaming with frame 7 & 8
-        for i in 7..10 {
+        for (i, frame) in sine_frames.iter().enumerate().take(10).skip(7) {
             let ts = (i * frame_size) as u32;
-            let _ = neteq.insert_packet(AudioPacket::new(ts, i as u16, sine_frames[i].clone()));
+            let _ = neteq.insert_packet(AudioPacket::new(ts, i as u16, frame.clone()));
         }
 
         let op_resume = neteq.get_audio(&mut out).expect("Failed get_audio on resume");

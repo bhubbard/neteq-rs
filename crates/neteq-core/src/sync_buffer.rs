@@ -51,9 +51,9 @@ impl SyncBuffer {
     /// Returns the number of samples actually written to `output`.
     pub fn extract(&mut self, output: &mut [i16]) -> usize {
         let count = output.len().min(self.future.len());
-        for i in 0..count {
+        for slot in output.iter_mut().take(count) {
             if let Some(sample) = self.future.pop_front() {
-                output[i] = sample;
+                *slot = sample;
                 self.push_history_sample(sample);
             }
         }

@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use hound::{WavReader, WavSpec, WavWriter};
 use neteq_core::{
-    AudioPacket, NetEq, NetEqConfig,
+    analyze_audio_quality, AudioPacket, NetEq, NetEqConfig,
 };
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -150,6 +150,7 @@ fn run_info() -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_simulation(
     input: Option<PathBuf>,
     output: PathBuf,
@@ -192,9 +193,11 @@ fn run_simulation(
     let total_frames = source_samples.len() / frame_samples;
     println!("Generated {} audio frames ({:.2} seconds total)", total_frames, source_samples.len() as f32 / effective_sample_rate as f32);
 
-    let mut neteq_config = NetEqConfig::default();
-    neteq_config.sample_rate = effective_sample_rate;
-    neteq_config.frame_size_ms = frame_ms;
+    let neteq_config = NetEqConfig {
+        sample_rate: effective_sample_rate,
+        frame_size_ms: frame_ms,
+        ..Default::default()
+    };
 
     let mut neteq = NetEq::new(neteq_config).context("Failed to initialize NetEQ engine")?;
     let mut rng = StdRng::seed_from_u64(42);
@@ -245,6 +248,7 @@ fn run_simulation(
     let mut playout_clock_ms = 0.0;
     let clock_step_ms = frame_ms as f64;
     let mut output_frame_buf = vec![0i16; frame_samples];
+    let mut all_output_samples = Vec::with_capacity(source_samples.len());
 
     let start_time = Instant::now();
 
@@ -265,6 +269,7 @@ fn run_simulation(
         let _op = neteq.get_audio(&mut output_frame_buf).context("get_audio error")?;
         for &sample in &output_frame_buf {
             writer.write_sample(sample)?;
+            all_output_samples.push(sample);
         }
 
         playout_clock_ms += clock_step_ms;
@@ -274,6 +279,22 @@ fn run_simulation(
     let elapsed = start_time.elapsed();
 
     let stats = neteq.stats();
+    let total_playout_frames = (stats.normal_frames
+        + stats.accelerated_frames
+        + stats.preemptive_expanded_frames
+        + stats.concealed_frames
+        + stats.comfort_noise_frames
+        + stats.merged_frames)
+        .max(1);
+    let effective_loss_rate = packets_dropped_by_network as f64 / total_frames.max(1) as f64;
+    let conceal_pct = (stats.concealed_frames as f64 / total_playout_frames as f64) * 100.0;
+    let quality = analyze_audio_quality(
+        &all_output_samples,
+        frame_samples,
+        stats.target_delay_ms,
+        stats.jitter_ms,
+        effective_loss_rate,
+    );
 
     println!();
     println!("{}", "--- Simulation Results ---".bright_yellow().bold());
@@ -291,9 +312,12 @@ fn run_simulation(
     println!("  - Merged:            {}", stats.merged_frames.to_string().green());
     println!();
     println!("Target Delay:          {:.1} ms", stats.target_delay_ms);
+    println!("Network Jitter (RFC3550): {:.2} ms", stats.jitter_ms);
     println!("Packet Loss Rate:      {:.2}%", stats.packet_loss_rate * 100.0);
     println!("Acceleration Rate:     {:.2}%", stats.accelerate_rate * 100.0);
-    println!("Concealment Rate:      {:.2}%", (stats.concealed_frames as f64 / (stats.normal_frames + stats.concealed_frames + 1) as f64) * 100.0);
+    println!("Concealment Rate:      {:.2}%", conceal_pct);
+    println!("Estimated MOS-LQ:      {:.2} / 4.50 (R-Factor: {:.1})", quality.mos_lq, quality.r_factor);
+    println!("Output Level:          {:.1} dBov | Boundary Clicks: {}", quality.rms_dbov, quality.boundary_click_frames.len());
     println!();
     println!("{}", "Simulation successfully completed!".bright_green().bold());
 
