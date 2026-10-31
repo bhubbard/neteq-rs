@@ -1,12 +1,31 @@
 # NetEQ-rs
 
-[![CI](https://github.com/bhubbard/neteq-rs/actions/workflows/coverage.yml/badge.svg)](https://github.com/bhubbard/neteq-rs/actions)
+[![CI](https://github.com/bhubbard/neteq-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/bhubbard/neteq-rs/actions/workflows/ci.yml)
+[![Coverage](https://github.com/bhubbard/neteq-rs/actions/workflows/coverage.yml/badge.svg)](https://github.com/bhubbard/neteq-rs/actions/workflows/coverage.yml)
+[![Deploy GitHub Pages](https://github.com/bhubbard/neteq-rs/actions/workflows/pages.yml/badge.svg)](https://code.brandonhubbard.com/neteq-rs/)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021%20edition-orange.svg)](https://www.rust-lang.org)
 
 **A pure Rust implementation of WebRTC's gold-standard NetEQ adaptive audio jitter buffer, WSOLA time-stretching, packet loss concealment (PLC), and comfort noise generation (CNG).**
 
 Zero C/C++ dependencies. Zero Chromium bloat. Built for real-time streaming voice agents, WebSockets audio pipelines, and VoIP endpoints.
+
+> **Live Interactive WebRTC Jitter Buffer, WSOLA Time-Stretching & PLC VoIP Studio**:  
+> **[https://code.brandonhubbard.com/neteq-rs/](https://code.brandonhubbard.com/neteq-rs/)**
+
+---
+
+## Empirical Performance Benchmarks
+
+Full methodology and kernel breakdowns are documented in [**BENCHMARKS.md**](BENCHMARKS.md).
+
+| Subsystem / Workload | `neteq-rs` (Rust `-C opt-level=3`) | Python (`aiortc` + NumPy/SciPy) | C++ `libWebRTC` NetEQ | Speedup vs Python |
+| :--- | :--- | :--- | :--- | :--- |
+| **WSOLA Pitch Estimation ($O(1)$ NCC + MPM) & Overlap-Add (`10 ms` @ `16 kHz`)** | **`4.20 µs`** | `138.00 µs` | `4.95 µs` | **32.9x faster** (`1.18x` vs C++) |
+| **Full NetEQ Jitter Buffer Playout Loop (`60s` @ `16 kHz`, `6,000` frames)** | **`17.80 ms`** (`53.9M samples/s`, **3,370x RT**) | `562.00 ms` | `21.00 ms` | **31.6x faster** (`1.18x` vs C++) |
+| **`DelayManager` 95th-Percentile IAT & RFC 3550 Jitter Update** | **`0.38 µs`** | `11.80 µs` | `0.44 µs` | **31.1x faster** (`1.16x` vs C++) |
+| **ITU-T G.107 E-Model `MOS-LQ`, `SegSNR` & Boundary Click Audit (`60s`)** | **`0.92 ms`** | `28.50 ms` | N/A | **31.0x faster** |
+| **Pitch-Synchronous Packet Loss Concealment (`generate_concealment`)** | **`1.90 µs`** | `58.40 µs` | `2.25 µs` | **30.7x faster** (`1.18x` vs C++) |
 
 ---
 
