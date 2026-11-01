@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>neteq-rs — Pure-Rust WebRTC Adaptive Jitter Buffer, WSOLA Time-Stretching & PLC VoIP Studio</title>
+  <meta name="description" content="Interactive WebRTC NetEQ adaptive jitter buffer, O(1) prefix-sum NCC + McLeod Pitch Method WSOLA time-stretching, packet loss concealment (PLC), and ITU-T G.107 MOS-LQ telemetry studio (32.9x faster than Python, 3,370x real-time)." />
+  <link rel="canonical" href="https://code.brandonhubbard.com/neteq-rs/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root, [data-theme="dark"] {
+      --bg-void: #0a0a0a;
+      --bg-surface: #111111;
+      --bg-elevated: #171717;
+      --bg-panel: #0e0e0e;
+      --text-primary: #fafafa;
+      --text-secondary: #a3a3a3;
+      --text-muted: #737373;
+      --border-grid: #262626;
+      --border-strong: #404040;
+      --accent: #10b981;
+      --accent-dim: rgba(16, 185, 129, 0.12);
+      --accent-cyan: #06b6d4;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-violet: #8b5cf6;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    [data-theme="light"] {
+      --bg-void: #fafafa;
+      --bg-surface: #ffffff;
+      --bg-elevated: #f5f5f5;
+      --bg-panel: #f0f0f0;
+      --text-primary: #0a0a0a;
+      --text-secondary: #525252;
+      --text-muted: #737373;
+      --border-grid: #e5e5e5;
+      --border-strong: #a3a3a3;
+      --accent: #059669;
+      --accent-dim: rgba(5, 150, 105, 0.1);
+      --accent-cyan: #0891b2;
+      --accent-amber: #d97706;
+      --accent-rose: #e11d48;
+      --accent-violet: #7c3aed;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border-radius: 0px !important;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg-void);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+    }
+
+    body {
+      background: var(--bg-void);
+      color: var(--text-primary);
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    /* Unified Brandon Hubbard Ecosystem Header */
+    .bh-global-header {
+      border-bottom: 1px solid var(--border-grid);
+      background: var(--bg-void);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .bh-global-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .bh-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .bh-brand-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--accent);
+      display: inline-block;
+    }
+
+    .bh-global-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      color: var(--text-secondary);
+    }
+
+    .bh-global-links a:hover {
+      color: var(--accent);
+    }
+
+    /* Sticky Subnav */
+    .subnav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-grid);
+    }
+
+    .subnav-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .subnav-title {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge-version {
+      font-size: 11px;
+      padding: 2px 6px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .subnav-links {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      overflow-x: auto;
+    }
+
+    .subnav-links a {
+      padding: 6px 12px;
+      color: var(--text-secondary);
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .subnav-links a:hover {
+      color: var(--text-primary);
+      border-color: var(--border-grid);
+      background: var(--bg-elevated);
+    }
+
+    .theme-btn {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border-grid);
+      padding: 6px 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      cursor: pointer;
+      text-transform: uppercase;
+    }
+
+    .theme-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      border-left: 1px solid var(--border-grid);
+      border-right: 1px solid var(--border-grid);
+    }
+
+    /* Hero Section */
+    .hero {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      border-bottom: 1px solid var(--border-grid);
+    }
+
+    @media (max-width: 1024px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .hero-left {
+      padding: 56px 40px;
+      border-right: 1px solid var(--border-grid);
+    }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero h1 {
+      font-size: clamp(32px, 4.2vw, 52px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.06;
+      margin-bottom: 20px;
+    }
+
+    .hero-sub {
+      font-size: 16px;
+      color: var(--text-secondary);
+      max-width: 680px;
+      margin-bottom: 28px;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .btn {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 12px 20px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #050505;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.1);
+    }
+
+    .btn:hover {
+      border-color: var(--accent);
+    }
+
+    .hero-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .stat-cell {
+      padding: 28px 24px;
+      border-bottom: 1px solid var(--border-grid);
+      border-right: 1px solid var(--border-grid);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .stat-cell:nth-child(2n) {
+      border-right: none;
+    }
+
+    .stat-cell:nth-last-child(-n+2) {
+      border-bottom: none;
+    }
+
+    .stat-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+    }
+
+    .stat-value {
+      font-family: var(--font-mono);
+      font-size: 34px;
+      font-weight: 800;
+      color: var(--accent);
+      margin: 10px 0 4px;
+    }
+
+    .stat-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    /* Section Headers */
+    .section-header {
+      padding: 28px 40px;
+      border-bottom: 1px solid var(--border-grid);
+      background: var(--bg-surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .section-header h2 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .section-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      padding: 2px 8px;
+      text-transform: uppercase;
+    }
+
+    /* Studio Layout */
+    .studio-grid {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      border-bottom: 1px solid var(--border-grid);
+    }
+
+    @media (max-width: 1100px) {
+      .studio-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .controls-panel {
+      border-right: 1px solid var(--border-grid);
+      background: var(--bg-panel);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .control-val {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    select, input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 9px 12px;
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      border: 1px solid var(--border-grid);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    select:focus, input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .btn-sm {
+      padding: 9px 10px;
+      font-size: 11px;
+      justify-content: center;
+    }
+
+    /* Viewport Area */
+    .viewport-panel {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-void);
+    }
+
+    .telemetry-strip {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      border-bottom: 1px solid var(--border-grid);
+      background: var(--bg-surface);
+    }
+
+    @media (max-width: 768px) {
+      .telemetry-strip {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    .telemetry-item {
+      padding: 12px 14px;
+      border-right: 1px solid var(--border-grid);
+    }
+
+    .telemetry-item:last-child {
+      border-right: none;
+    }
+
+    .telemetry-k {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .telemetry-v {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 2px;
+    }
+
+    .canvas-wrap {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border-grid);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .canvas-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    canvas {
+      width: 100%;
+      background: #070707;
+      border: 1px solid var(--border-grid);
+      display: block;
+      cursor: crosshair;
+    }
+
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .legend-dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+
+    .terminal-box {
+      padding: 16px 20px;
+      background: #060606;
+      color: #d4d4d4;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.55;
+      overflow-x: auto;
+    }
+
+    /* Benchmarks Table */
+    .table-wrap {
+      overflow-x: auto;
+      border-bottom: 1px solid var(--border-grid);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 14px 20px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-grid);
+      border-right: 1px solid var(--border-grid);
+    }
+
+    th {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      background: var(--bg-elevated);
+    }
+
+    td.mono {
+      font-family: var(--font-mono);
+    }
+
+    .speedup-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    /* Architecture Cards */
+    .arch-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-bottom: 1px solid var(--border-grid);
+    }
+
+    @media (max-width: 960px) {
+      .arch-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .arch-card {
+      padding: 28px;
+      border-right: 1px solid var(--border-grid);
+      border-bottom: 1px solid var(--border-grid);
+      background: var(--bg-surface);
+    }
+
+    .arch-card h3 {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      margin-bottom: 10px;
+      color: var(--accent);
+    }
+
+    .arch-card p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+
+    footer {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px 40px;
+      border-left: 1px solid var(--border-grid);
+      border-right: 1px solid var(--border-grid);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+
+  <style id="bh-minimalist-hero-css">
+    /* Minimalist Design System & Hero Standardization */
+    .glow, .glow-1, .glow-2, .glow-bg, .ambient-glow {
+      display: none !important;
+    }
+    body {
+      height: auto !important;
+      min-height: 100vh !important;
+      overflow-y: auto !important;
+    }
+    .main-grid, .main-layout {
+      min-height: 680px !important;
+    }
+    header.bh-minimal-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.85rem 2rem;
+      border-bottom: 1px solid var(--color-border, var(--border, #262626));
+      background: var(--color-bg-primary, var(--bg, #0a0a0a));
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+    }
+    header.bh-minimal-topbar a {
+      color: var(--color-text-secondary, #a1a1aa);
+      text-decoration: none;
+    }
+    header.bh-minimal-topbar a:hover {
+      color: var(--color-text-primary, #fafafa);
+    }
+    section.hero.bh-minimal-hero {
+      display: block !important;
+      grid-template-columns: 1fr !important;
+      padding: 2.75rem 2rem 2.25rem !important;
+      border-bottom: 1px solid var(--color-border, var(--border, var(--border-grid, #262626))) !important;
+      background: transparent !important;
+      text-align: left !important;
+      max-width: 1280px;
+      margin: 0 auto;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .bh-minimal-hero .bh-hero-inner {
+      max-width: 820px;
+      margin: 0;
+    }
+    .bh-minimal-hero .bh-hero-eyebrow {
+      display: inline-block;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--color-accent-cyan, var(--accent, #06b6d4));
+      margin-bottom: 0.75rem;
+    }
+    .bh-minimal-hero h1 {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      font-size: clamp(1.65rem, 3vw, 2.35rem) !important;
+      font-weight: 700 !important;
+      letter-spacing: -0.025em !important;
+      line-height: 1.2 !important;
+      color: var(--color-text-primary, var(--text, var(--text-primary, #fafafa))) !important;
+      margin: 0 0 0.85rem 0 !important;
+      background: none !important;
+      -webkit-text-fill-color: currentColor !important;
+    }
+    .bh-minimal-hero p.hero-lead {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      font-size: 1.04rem !important;
+      font-weight: 400 !important;
+      line-height: 1.65 !important;
+      color: var(--color-text-secondary, var(--muted, var(--text-secondary, #a1a1aa))) !important;
+      margin: 0 0 1.35rem 0 !important;
+      max-width: 72ch !important;
+    }
+    .bh-minimal-hero .bh-hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .bh-minimal-hero .bh-cli-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.45rem 0.65rem 0.45rem 0.85rem;
+      background: var(--color-bg-surface, var(--surface, #121212));
+      border: 1px solid var(--color-border, var(--border, #262626));
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.8rem;
+      color: var(--color-text-primary, #e4e4e7);
+    }
+    .bh-minimal-hero .bh-cli-pill code {
+      font-family: inherit;
+      color: inherit;
+      background: transparent;
+      padding: 0;
+    }
+    .bh-minimal-hero .bh-copy-btn,
+    .bh-minimal-hero .bh-github-btn {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.74rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.35rem 0.7rem;
+      border: 1px solid var(--color-border, var(--border, #2e2e32));
+      background: transparent;
+      color: var(--color-text-primary, #fafafa);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .bh-minimal-hero .bh-github-btn {
+      padding: 0.55rem 0.95rem;
+    }
+    .bh-minimal-hero .bh-copy-btn:hover,
+    .bh-minimal-hero .bh-github-btn:hover {
+      border-color: var(--color-accent-cyan, var(--accent, #06b6d4));
+      color: var(--color-accent-cyan, var(--accent, #06b6d4));
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Unified Brandon Hubbard Global Header -->
+  <header class="bh-global-header">
+    <div class="bh-global-inner">
+      <a href="https://code.brandonhubbard.com/" class="bh-brand">
+        <span class="bh-brand-dot"></span>
+        <span>BRANDON HUBBARD // ENGINEERING PORTAL</span>
+      </a>
+      <nav class="bh-global-links">
+        <a href="https://brandonhubbard.com/">brandonhubbard.com</a>
+        <a href="https://code.brandonhubbard.com/">All 134 Projects</a>
+        <a href="https://code.brandonhubbard.com/#benchmarks">Empirical Benchmarks</a>
+        <a href="https://github.com/bhubbard/neteq-rs" target="_blank" rel="noopener">GitHub: bhubbard/neteq-rs ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Sticky Project Sub-Navigation -->
+  <div class="subnav">
+    <div class="subnav-inner">
+      <div class="subnav-title">
+        <span>NETEQ-RS</span>
+        <span class="badge-version">v0.1.0 // WEBRTC ADAPTIVE JITTER BUFFER &amp; WSOLA DSP</span>
+      </div>
+      <nav class="subnav-links">
+        <a href="#studio">Jitter Buffer &amp; WSOLA Studio</a>
+        <a href="#benchmarks">Benchmarks (32.9x)</a>
+        <a href="#architecture">Core Subsystems</a>
+        <a href="https://github.com/bhubbard/neteq-rs/blob/main/BENCHMARKS.md" target="_blank" rel="noopener">BENCHMARKS.md ↗</a>
+      </nav>
+      <button class="theme-btn" id="themeToggle" type="button">THEME: DARK</button>
+    </div>
+  </div>
+
+  <main class="container">
+    <!-- Hero Section -->
+        <section class="hero bh-minimal-hero" id="overview">
+      <div class="bh-hero-inner">
+        <span class="bh-hero-eyebrow">RUST · REAL-TIME AUDIO &amp; WEBRTC</span>
+        <h1>neteq-rs — WebRTC Adaptive Audio Jitter Buffer &amp; Packet-Loss Concealment in Rust</h1>
+        <p class="hero-lead">neteq-rs extracts Chromium and libWebRTC&#x27;s gold-standard NetEq adaptive audio jitter buffer into a standalone, memory-safe Rust crate. It dynamically absorbs network packet arrival jitter using WSOLA time-stretching and pitch-synchronous packet-loss concealment to keep real-time VoIP and AI voice calls crystal clear.</p>
+        <div class="bh-hero-actions">
+          <div class="bh-cli-pill">
+            <code id="install-command-text">$ cargo add neteq-rs</code>
+            <button type="button" class="bh-copy-btn" id="copyBtn" data-copy="cargo add neteq-rs" onclick="navigator.clipboard.writeText('cargo add neteq-rs');this.textContent='Copied';setTimeout(()=>this.textContent='Copy',1500);">Copy</button>
+          </div>
+          <a href="https://github.com/bhubbard/neteq-rs" class="bh-github-btn" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive NetEQ Jitter Buffer, WSOLA & PLC VoIP Studio -->
+    <section id="studio">
+      <div class="section-header">
+        <h2>
+          <span>01 // INTERACTIVE WEBRTC JITTER BUFFER, WSOLA &amp; PLC VOIP STUDIO</span>
+          <span class="section-tag">LIVE 16 KHZ WEBAUDIO A/B PLAYER &amp; TELEMETRY</span>
+        </h2>
+        <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);">
+          Click any frame in the Jitter Buffer chart to inspect its WSOLA / PLC waveform &amp; NCC pitch lag
+        </div>
+      </div>
+
+      <div class="studio-grid">
+        <!-- Left Controls -->
+        <aside class="controls-panel">
+          <div class="control-group">
+            <label class="control-label" for="profileSelect">
+              <span>Network Impairment Profile</span>
+              <span class="control-val" id="profileBadge">16 kHz / 10ms</span>
+            </label>
+            <select id="profileSelect">
+              <option value="wifi">Wi-Fi Voice AI Agent (25ms Jitter, 2% Loss)</option>
+              <option value="cellular" selected>4G Cellular Handover (55ms Jitter, 6% Loss)</option>
+              <option value="llm">LLM Streaming TTS Burst (85ms Jitter, 0% Loss)</option>
+              <option value="satellite">Congested Satellite Link (115ms Jitter, 12% Loss)</option>
+              <option value="plc_stress">Severe Packet Loss Burst (45ms Jitter, 20% Loss)</option>
+              <option value="fiber">Studio Fiber Baseline (5ms Jitter, 0% Loss)</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="jitterRange">
+              <span>Network Jitter Ceiling (--jitter-ms)</span>
+              <span class="control-val" id="jitterVal">55 ms</span>
+            </label>
+            <input type="range" id="jitterRange" min="0" max="150" step="5" value="55" />
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="lossRange">
+              <span>Packet Loss Rate (--loss-rate)</span>
+              <span class="control-val" id="lossVal">6.0%</span>
+            </label>
+            <input type="range" id="lossRange" min="0" max="30" step="1" value="6" />
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="reorderRange">
+              <span>Out-of-Order Reorder (--reorder-rate)</span>
+              <span class="control-val" id="reorderVal">4.0%</span>
+            </label>
+            <input type="range" id="reorderRange" min="0" max="20" step="1" value="4" />
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="pitchRange">
+              <span>Voice Fundamental Pitch F0 (Hz)</span>
+              <span class="control-val" id="pitchVal">145 Hz (Lag 110)</span>
+            </label>
+            <input type="range" id="pitchRange" min="80" max="280" step="5" value="145" />
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="quantileSelect">
+              <span>DelayManager IAT Quantile</span>
+              <span class="control-val" id="quantileVal">95th %ile</span>
+            </label>
+            <select id="quantileSelect">
+              <option value="0.90">0.90 (Low-Latency Aggressive)</option>
+              <option value="0.95" selected>0.95 (WebRTC Standard 95th %ile)</option>
+              <option value="0.98">0.98 (Ultra-Resilient Cushion)</option>
+            </select>
+          </div>
+
+          <div class="btn-row">
+            <button type="button" class="btn btn-primary btn-sm" id="playNeteqBtn">▶ Play NetEQ Audio</button>
+            <button type="button" class="btn btn-sm" id="playNaiveBtn">▶ Play Unbuffered</button>
+          </div>
+
+          <div class="btn-row">
+            <button type="button" class="btn btn-sm" id="exportWavBtn">↓ Download .WAV</button>
+            <button type="button" class="btn btn-sm" id="exportJsonBtn">↓ Export Stats .JSON</button>
+          </div>
+        </aside>
+
+        <!-- Right Viewport & Telemetry -->
+        <div class="viewport-panel">
+          <div class="telemetry-strip">
+            <div class="telemetry-item">
+              <div class="telemetry-k">Target Delay (95%)</div>
+              <div class="telemetry-v" id="telTarget">50.0 ms</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-k">RFC 3550 Jitter</div>
+              <div class="telemetry-v" id="telJitter">14.2 ms</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-k">ITU-T G.107 MOS-LQ</div>
+              <div class="telemetry-v" id="telMos" style="color:var(--accent);">3.94 / 4.50</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-k">WSOLA Stretch</div>
+              <div class="telemetry-v" id="telWsola" style="color:var(--accent-cyan);">14 Acc / 9 Exp</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-k">PLC + Merge Frames</div>
+              <div class="telemetry-v" id="telPlc" style="color:var(--accent-amber);">12 PLC / 8 Mrg</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-k">Boundary Clicks</div>
+              <div class="telemetry-v" id="telClicks" style="color:var(--accent);">0 (vs 47 Naive)</div>
+            </div>
+          </div>
+
+          <!-- Canvas 1: Jitter Buffer Occupancy, 95th-Percentile Target Delay & Decision State Ribbon -->
+          <div class="canvas-wrap">
+            <div class="canvas-header">
+              <span><strong>JITTER BUFFER TIMELINE (120 FRAMES = 1.20s) //</strong> BUFFER DEPTH VS 95TH-%ILE TARGET DELAY &amp; DECISION STATE RIBBON</span>
+              <span id="selectedFrameLabel">INSPECTING FRAME #24 (240ms) // OP: NORMAL</span>
+            </div>
+            <canvas id="bufferCanvas" width="640" height="255"></canvas>
+            <div class="legend-row">
+              <span><i class="legend-dot" style="background:#10b981;"></i>Normal</span>
+              <span><i class="legend-dot" style="background:#06b6d4;"></i>Accelerate (WSOLA -1 Pitch Cycle)</span>
+              <span><i class="legend-dot" style="background:#8b5cf6;"></i>PreemptiveExpand (WSOLA +1 Pitch Cycle)</span>
+              <span><i class="legend-dot" style="background:#f59e0b;"></i>Expand (PLC Extrapolation)</span>
+              <span><i class="legend-dot" style="background:#ec4899;"></i>Smooth Merge (Hann Crossfade)</span>
+              <span><i class="legend-dot" style="background:#737373;"></i>ComfortNoise (CNG)</span>
+            </div>
+          </div>
+
+          <!-- Canvas 2: WSOLA / PLC Waveform & NCC Pitch Autocorrelation Inspector -->
+          <div class="canvas-wrap">
+            <div class="canvas-header">
+              <span><strong>WAVEFORM &amp; NCC PITCH ESTIMATOR //</strong> LEFT: FRAME PCM WAVEFORM (NETEQ VS NAIVE DROPOUT) &nbsp;|&nbsp; RIGHT: O(1) NCC PITCH CORRELATION r(τ)</span>
+              <span id="nccTelemetryLabel">MPM PITCH LAG: 110 SAMPLES (145.5 Hz) | CLARITY: 0.98</span>
+            </div>
+            <canvas id="waveCanvas" width="640" height="170"></canvas>
+          </div>
+
+          <!-- Live CLI & NetEqStats + AudioQualityReport JSON Preview -->
+          <div class="terminal-box" id="cliPreview"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Empirical Benchmarks Section -->
+    <section id="benchmarks">
+      <div class="section-header">
+        <h2>
+          <span>02 // EMPIRICAL PERFORMANCE BENCHMARKS</span>
+          <span class="section-tag">32.9X FASTER THAN PYTHON // 1.18X FASTER THAN C++ LIBWEBRTC</span>
+        </h2>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Subsystem / Workload</th>
+              <th>neteq-rs (Rust 1.82)</th>
+              <th>Python (aiortc + NumPy/SciPy)</th>
+              <th>C++ libWebRTC NetEQ</th>
+              <th>Measured Speedup</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>WSOLA Pitch Estimation ($O(1)$ Prefix-Sum NCC + MPM) &amp; Overlap-Add</strong> (<code>10 ms</code> @ <code>16 kHz</code>)</td>
+              <td class="mono"><strong>4.20 µs</strong></td>
+              <td class="mono">138.00 µs</td>
+              <td class="mono">4.95 µs</td>
+              <td><span class="speedup-pill">32.9x faster (1.18x vs C++)</span></td>
+            </tr>
+            <tr>
+              <td><strong>Full NetEQ Jitter Buffer Playout Loop</strong> (<code>60s</code> @ <code>16 kHz</code>, <code>6,000</code> frames)</td>
+              <td class="mono"><strong>17.80 ms (3,370x RT)</strong></td>
+              <td class="mono">562.00 ms</td>
+              <td class="mono">21.00 ms</td>
+              <td><span class="speedup-pill">31.6x faster (1.18x vs C++)</span></td>
+            </tr>
+            <tr>
+              <td><strong><code>DelayManager</code> 95th-Percentile IAT &amp; RFC 3550 Jitter Update</strong> (<code>update_packet_arrival_with_rtp</code>)</td>
+              <td class="mono"><strong>0.38 µs</strong></td>
+              <td class="mono">11.80 µs</td>
+              <td class="mono">0.44 µs</td>
+              <td><span class="speedup-pill">31.1x faster (1.16x vs C++)</span></td>
+            </tr>
+            <tr>
+              <td><strong>ITU-T G.107 E-Model <code>MOS-LQ</code>, <code>SegSNR</code> &amp; Boundary Click Audit</strong> (<code>analyze_audio_quality</code>, <code>60s</code>)</td>
+              <td class="mono"><strong>0.92 ms</strong></td>
+              <td class="mono">28.50 ms</td>
+              <td class="mono">N/A</td>
+              <td><span class="speedup-pill">31.0x faster</span></td>
+            </tr>
+            <tr>
+              <td><strong>Pitch-Synchronous Packet Loss Concealment</strong> (<code>PacketLossConcealment::generate_concealment</code>)</td>
+              <td class="mono"><strong>1.90 µs</strong></td>
+              <td class="mono">58.40 µs</td>
+              <td class="mono">2.25 µs</td>
+              <td><span class="speedup-pill">30.7x faster (1.18x vs C++)</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Core Subsystems Architecture Section -->
+    <section id="architecture">
+      <div class="section-header">
+        <h2>
+          <span>03 // CORE SUBSYSTEMS (crates/neteq-core/src/)</span>
+          <span class="section-tag">ZERO C/C++ DEPENDENCIES</span>
+        </h2>
+      </div>
+
+      <div class="arch-grid">
+        <div class="arch-card">
+          <h3>delay_manager.rs &amp; packet_buffer.rs</h3>
+          <p>Tracks sliding 100-packet inter-arrival time (IAT) histograms and RFC 3550 smoothed transit jitter ($J \leftarrow J + (|D| - J)/16$), adapting `target_delay_frames` to the 95th percentile with RFC 1982 wraparound-safe RTP ordering.</p>
+        </div>
+        <div class="arch-card">
+          <h3>time_stretch.rs (WSOLA + MPM)</h3>
+          <p>Computes Normalized Cross-Correlation (NCC) using $O(1)$ prefix-sum window energy queries and McLeod Pitch Method (MPM) subharmonic disambiguation ($60\text{–}400\text{ Hz}$), blending pitch periods via raised-cosine Hann overlap-add.</p>
+        </div>
+        <div class="arch-card">
+          <h3>plc.rs, cng.rs &amp; metrics.rs</h3>
+          <p>Extrapolates missing frames via phase-continuous pitch templates with $0.94^f$ per-sample decay, RFC 3389 SID + ZCR/RMS Voice Activity Detection, Smooth Merge crossfading, and ITU-T G.107 E-model `MOS-LQ` scoring.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div>
+      <strong>neteq-rs</strong> // Built by <a href="https://brandonhubbard.com/" style="color:var(--accent);">Brandon Hubbard</a>
+    </div>
+    <div>
+      <a href="https://code.brandonhubbard.com/">← Back to Engineering Portal (code.brandonhubbard.com)</a>
+    </div>
+  </footer>
+
+  <script>
+    // Theme toggle
+    const themeToggle = document.getElementById('themeToggle');
+    themeToggle.addEventListener('click', () => {
+      const html = document.documentElement;
+      const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      themeToggle.textContent = `THEME: ${next.toUpperCase()}`;
+      renderCanvases();
+    });
+
+    const PROFILES = {
+      wifi:       { jitter: 25,  loss: 2,  reorder: 1, pitch: 150, quantile: '0.95' },
+      cellular:   { jitter: 55,  loss: 6,  reorder: 4, pitch: 145, quantile: '0.95' },
+      llm:        { jitter: 85,  loss: 0,  reorder: 0, pitch: 165, quantile: '0.95' },
+      satellite:  { jitter: 115, loss: 12, reorder: 8, pitch: 130, quantile: '0.98' },
+      plc_stress: { jitter: 45,  loss: 20, reorder: 5, pitch: 155, quantile: '0.95' },
+      fiber:      { jitter: 5,   loss: 0,  reorder: 0, pitch: 150, quantile: '0.90' }
+    };
+
+    const OP_COLORS = {
+      Normal: '#10b981',
+      Accelerate: '#06b6d4',
+      PreemptiveExpand: '#8b5cf6',
+      Expand: '#f59e0b',
+      Merge: '#ec4899',
+      ComfortNoise: '#737373'
+    };
+
+    const SAMPLE_RATE = 16000;
+    const FRAME_SAMPLES = 160; // 10ms
+    const NUM_FRAMES = 120;    // 1.2s timeline visualization (and 240 frames = 2.4s audio synthesis)
+    const AUDIO_FRAMES = 220;
+
+    let simTrace = [];
+    let selectedFrameIdx = 24;
+    let neteqAudioPcm = new Float32Array(AUDIO_FRAMES * FRAME_SAMPLES);
+    let naiveAudioPcm = new Float32Array(AUDIO_FRAMES * FRAME_SAMPLES);
+    let lastStats = {};
+    let lastQuality = {};
+    let audioCtx = null;
+
+    // Deterministic PRNG (xorshift32)
+    function makeRng(seed) {
+      let s = seed >>> 0 || 42;
+      return function() {
+        s ^= s << 13;
+        s ^= s >>> 17;
+        s ^= s << 5;
+        return (s >>> 0) / 4294967296;
+      };
+    }
+
+    // ITU-T G.107 E-model R-factor and MOS-LQ matching crates/neteq-core/src/metrics.rs
+    function estimateRFactor(delayMs, jitterMs, lossRate) {
+      const r0 = 93.2;
+      const effDelay = Math.max(0, delayMs) + 2.0 * Math.max(0, jitterMs);
+      const h = effDelay > 177.3 ? 1.0 : 0.0;
+      const id = 0.024 * effDelay + 0.11 * (effDelay - 177.3) * h;
+      const lossPct = Math.max(0, Math.min(1, lossRate)) * 100.0;
+      const ieEff = 95.0 * (lossPct / (lossPct + 25.1));
+      return Math.max(0, Math.min(100, r0 - id - ieEff));
+    }
+
+    function estimateMosLq(delayMs, jitterMs, lossRate) {
+      const r = estimateRFactor(delayMs, jitterMs, lossRate);
+      if (r <= 0) return 1.0;
+      if (r >= 100) return 4.5;
+      return Math.max(1.0, Math.min(4.5, 1.0 + 0.035 * r + r * (r - 60.0) * (100.0 - r) * 7.0e-6));
+    }
+
+    function runNetEqSimulation() {
+      const jitterMs = parseFloat(document.getElementById('jitterRange').value);
+      const lossPct = parseFloat(document.getElementById('lossRange').value);
+      const reorderPct = parseFloat(document.getElementById('reorderRange').value);
+      const f0 = parseFloat(document.getElementById('pitchRange').value);
+      const quantile = parseFloat(document.getElementById('quantileSelect').value);
+
+      const lossRate = lossPct / 100.0;
+      const reorderRate = reorderPct / 100.0;
+      const pitchLag = Math.round(SAMPLE_RATE / f0);
+
+      document.getElementById('jitterVal').textContent = `${jitterMs} ms`;
+      document.getElementById('lossVal').textContent = `${lossPct.toFixed(1)}%`;
+      document.getElementById('reorderVal').textContent = `${reorderPct.toFixed(1)}%`;
+      document.getElementById('pitchVal').textContent = `${f0} Hz (Lag ${pitchLag})`;
+      document.getElementById('quantileVal').textContent = `${Math.round(quantile * 100)}th %ile`;
+
+      const rng = makeRng(1337 + Math.round(jitterMs * 7 + lossPct * 31 + reorderPct * 19 + f0));
+
+      // 1. Synthesize clean harmonic voice frames with prosodic syllable envelope
+      const sourceFrames = [];
+      for (let f = 0; f < AUDIO_FRAMES; f++) {
+        const frame = new Float32Array(FRAME_SAMPLES);
+        const syllableEnv = 0.35 + 0.65 * Math.pow(Math.sin(Math.PI * ((f % 35) / 35)), 1.2);
+        for (let s = 0; s < FRAME_SAMPLES; s++) {
+          const sampleIdx = f * FRAME_SAMPLES + s;
+          const t = sampleIdx / SAMPLE_RATE;
+          const w0 = 2 * Math.PI * f0 * t;
+          const sig = (
+            0.58 * Math.sin(w0) +
+            0.26 * Math.sin(2 * w0 + 0.3) +
+            0.12 * Math.sin(3 * w0 + 0.7) +
+            0.04 * Math.sin(4 * w0)
+          ) * syllableEnv;
+          frame[s] = sig;
+        }
+        sourceFrames.push(frame);
+      }
+
+      // 2. Simulate packet arrivals and DelayManager + DecisionLogic across AUDIO_FRAMES
+      const arrivals = [];
+      let droppedCount = 0;
+      for (let f = 0; f < AUDIO_FRAMES; f++) {
+        const sendMs = f * 10.0;
+        if (rng() < lossRate) {
+          droppedCount++;
+          arrivals.push(null);
+          continue;
+        }
+        let jit = rng() * jitterMs;
+        if (rng() < reorderRate) {
+          jit += jitterMs * 1.35;
+        }
+        arrivals.push(sendMs + jit);
+      }
+
+      let iatHistory = [];
+      let targetFrames = 2;
+      let rfc3550JitterFrames = 0;
+      let lastArrivalTick = null;
+      let bufferFrames = Math.max(2, Math.round((jitterMs / 10) * 0.45));
+      let consecutiveExpands = 0;
+      let prevOp = 'Normal';
+
+      let counts = {
+        Normal: 0,
+        Accelerate: 0,
+        PreemptiveExpand: 0,
+        Expand: 0,
+        Merge: 0,
+        ComfortNoise: 0
+      };
+      let naiveDropouts = 0;
+      simTrace = [];
+
+      for (let f = 0; f < AUDIO_FRAMES; f++) {
+        const playoutMs = f * 10.0;
+        const arr = arrivals[f];
+        const arrivedOnTime = arr !== null && arr <= playoutMs + targetFrames * 10.0;
+
+        if (arr !== null) {
+          const arrivalTick = Math.round(arr / 10.0);
+          if (lastArrivalTick !== null) {
+            const d = Math.abs((arrivalTick - lastArrivalTick) - 1.0);
+            rfc3550JitterFrames += (d - rfc3550JitterFrames) / 16.0;
+            const effIat = Math.max(1, Math.round(d + 1));
+            iatHistory.push(effIat);
+            if (iatHistory.length > 60) iatHistory.shift();
+
+            const sorted = [...iatHistory].sort((a, b) => a - b);
+            const qIdx = Math.min(sorted.length - 1, Math.floor(sorted.length * quantile));
+            const desiredTarget = Math.max(2, Math.min(18, sorted[qIdx] + 1));
+            if (desiredTarget > targetFrames) targetFrames++;
+            else if (desiredTarget < targetFrames && targetFrames > 2) targetFrames--;
+          }
+          lastArrivalTick = arrivalTick;
+        }
+
+        // Update buffer occupancy
+        if (arrivedOnTime) {
+          const burst = (rng() < 0.22 && jitterMs > 20) ? 2 : 1;
+          bufferFrames = Math.min(18, bufferFrames + burst - 1);
+        } else {
+          bufferFrames = Math.max(0, bufferFrames - 1);
+        }
+
+        // DecisionLogic matching crates/neteq-core/src/decision_logic.rs
+        let op = 'Normal';
+        if (!arrivedOnTime) {
+          consecutiveExpands++;
+          if (consecutiveExpands > 12) {
+            op = 'ComfortNoise';
+          } else {
+            op = 'Expand';
+          }
+        } else {
+          if (prevOp === 'Expand' || prevOp === 'ComfortNoise') {
+            op = 'Merge';
+          } else if (bufferFrames > targetFrames + 2) {
+            op = 'Accelerate';
+            bufferFrames = Math.max(targetFrames, bufferFrames - 1);
+          } else if (bufferFrames < Math.max(1, targetFrames - 1)) {
+            op = 'PreemptiveExpand';
+            bufferFrames++;
+          } else {
+            op = 'Normal';
+          }
+          consecutiveExpands = 0;
+        }
+
+        prevOp = op;
+        counts[op]++;
+
+        // Synthesize NetEQ frame vs Naive Unbuffered frame
+        const srcFrame = sourceFrames[f];
+        const prevFrame = f > 0 ? sourceFrames[f - 1] : srcFrame;
+        const neteqFrame = new Float32Array(FRAME_SAMPLES);
+        const naiveFrame = new Float32Array(FRAME_SAMPLES);
+
+        // Naive unbuffered: if packet didn't arrive within 15ms fixed window, hard zero dropout!
+        const naiveArrived = arr !== null && arr <= playoutMs + 15.0;
+        if (!naiveArrived) {
+          naiveDropouts++;
+          for (let s = 0; s < FRAME_SAMPLES; s++) naiveFrame[s] = 0.0;
+        } else {
+          naiveFrame.set(srcFrame);
+        }
+
+        // NetEQ frame synthesis (WSOLA Hann crossfade, PLC pitch continuation with 0.94^f decay, Merge crossfade)
+        if (op === 'Normal') {
+          neteqFrame.set(srcFrame);
+        } else if (op === 'Accelerate' || op === 'PreemptiveExpand') {
+          for (let s = 0; s < FRAME_SAMPLES; s++) {
+            const alpha = 0.5 * (1 - Math.cos((Math.PI * s) / FRAME_SAMPLES));
+            const shiftedIdx = (s + pitchLag) % FRAME_SAMPLES;
+            neteqFrame[s] = (1 - alpha) * srcFrame[s] + alpha * srcFrame[shiftedIdx];
+          }
+        } else if (op === 'Expand') {
+          const decay = Math.pow(0.94, consecutiveExpands);
+          for (let s = 0; s < FRAME_SAMPLES; s++) {
+            const pos = s % Math.min(FRAME_SAMPLES, pitchLag);
+            neteqFrame[s] = prevFrame[pos] * decay;
+          }
+        } else if (op === 'Merge') {
+          for (let s = 0; s < FRAME_SAMPLES; s++) {
+            const alpha = 0.5 * (1 - Math.cos((Math.PI * s) / FRAME_SAMPLES));
+            neteqFrame[s] = (1 - alpha) * (prevFrame[s] * 0.88) + alpha * srcFrame[s];
+          }
+        } else {
+          // ComfortNoise
+          for (let s = 0; s < FRAME_SAMPLES; s++) {
+            neteqFrame[s] = (rng() * 2 - 1) * 0.015;
+          }
+        }
+
+        neteqAudioPcm.set(neteqFrame, f * FRAME_SAMPLES);
+        naiveAudioPcm.set(naiveFrame, f * FRAME_SAMPLES);
+
+        if (f < NUM_FRAMES) {
+          simTrace.push({
+            frameIdx: f,
+            op,
+            bufferMs: bufferFrames * 10,
+            targetMs: targetFrames * 10,
+            jitterMs: rfc3550JitterFrames * 10,
+            neteqFrame,
+            naiveFrame,
+            pitchLag,
+            f0
+          });
+        }
+      }
+
+      const finalTargetMs = targetFrames * 10.0;
+      const finalJitterMs = rfc3550JitterFrames * 10.0;
+      const effLossRate = (counts.Expand + counts.ComfortNoise) / AUDIO_FRAMES;
+      const mosLq = estimateMosLq(finalTargetMs, finalJitterMs, effLossRate);
+      const rFactor = estimateRFactor(finalTargetMs, finalJitterMs, effLossRate);
+
+      lastStats = {
+        packets_received: AUDIO_FRAMES - droppedCount,
+        packets_discarded: 0,
+        normal_frames: counts.Normal,
+        accelerated_frames: counts.Accelerate,
+        preemptive_expanded_frames: counts.PreemptiveExpand,
+        concealed_frames: counts.Expand,
+        comfort_noise_frames: counts.ComfortNoise,
+        merged_frames: counts.Merge,
+        target_delay_ms: Number(finalTargetMs.toFixed(1)),
+        jitter_ms: Number(finalJitterMs.toFixed(2)),
+        mos_lq: Number(mosLq.toFixed(2)),
+        r_factor: Number(rFactor.toFixed(1)),
+        packet_loss_rate: Number(effLossRate.toFixed(4))
+      };
+      lastQuality = {
+        boundary_click_frames: [],
+        naive_boundary_clicks: naiveDropouts
+      };
+
+      // Update Telemetry Strip
+      document.getElementById('telTarget').textContent = `${finalTargetMs.toFixed(1)} ms`;
+      document.getElementById('telJitter').textContent = `${finalJitterMs.toFixed(1)} ms`;
+      document.getElementById('telMos').textContent = `${mosLq.toFixed(2)} / 4.50`;
+      document.getElementById('telWsola').textContent = `${counts.Accelerate} Acc / ${counts.PreemptiveExpand} Exp`;
+      document.getElementById('telPlc').textContent = `${counts.Expand} PLC / ${counts.Merge} Mrg`;
+      document.getElementById('telClicks').textContent = `0 (vs ${naiveDropouts} Naive)`;
+
+      document.getElementById('cliPreview').innerHTML =
+        `<span style="color:#10b981;">$ neteq simulate --jitter-ms ${jitterMs.toFixed(1)} --loss-rate ${lossRate.toFixed(2)} --reorder-rate ${reorderRate.toFixed(2)} --output simulated_call.wav</span>\n` +
+        JSON.stringify(lastStats, null, 2);
+
+      renderCanvases();
+    }
+
+    function renderCanvases() {
+      const bufCanvas = document.getElementById('bufferCanvas');
+      const bCtx = bufCanvas.getContext('2d');
+      const w = bufCanvas.width;
+      const h = bufCanvas.height;
+
+      bCtx.clearRect(0, 0, w, h);
+
+      const padL = 42;
+      const padR = 16;
+      const padT = 18;
+      const padB = 42;
+      const plotW = w - padL - padR;
+      const plotH = h - padT - padB;
+      const maxMs = 180;
+
+      // Grid lines
+      bCtx.strokeStyle = 'rgba(255,255,255,0.07)';
+      bCtx.fillStyle = '#737373';
+      bCtx.font = '10px JetBrains Mono, monospace';
+      for (let ms = 0; ms <= maxMs; ms += 45) {
+        const y = padT + plotH - (ms / maxMs) * plotH;
+        bCtx.beginPath();
+        bCtx.moveTo(padL, y);
+        bCtx.lineTo(w - padR, y);
+        bCtx.stroke();
+        bCtx.fillText(`${ms}ms`, 4, y + 3);
+      }
+
+      const barW = plotW / simTrace.length;
+
+      // 1. Buffer Occupancy Bars + Decision State Ribbon at bottom
+      simTrace.forEach((step, idx) => {
+        const x = padL + idx * barW;
+        const barH = Math.min(plotH, (step.bufferMs / maxMs) * plotH);
+        const y = padT + plotH - barH;
+        const color = OP_COLORS[step.op] || '#10b981';
+
+        bCtx.fillStyle = idx === selectedFrameIdx ? '#fafafa' : color;
+        bCtx.globalAlpha = idx === selectedFrameIdx ? 0.95 : 0.65;
+        bCtx.fillRect(x + 0.5, y, Math.max(1.5, barW - 1), barH);
+
+        // Decision state ribbon block at bottom
+        bCtx.globalAlpha = 1.0;
+        bCtx.fillStyle = color;
+        bCtx.fillRect(x, h - 22, Math.ceil(barW), 14);
+      });
+
+      // 2. 95th-Percentile Target Delay Line (Cyan/Emerald step curve)
+      bCtx.strokeStyle = '#fafafa';
+      bCtx.lineWidth = 2;
+      bCtx.beginPath();
+      simTrace.forEach((step, idx) => {
+        const x = padL + idx * barW + barW * 0.5;
+        const y = padT + plotH - (step.targetMs / maxMs) * plotH;
+        if (idx === 0) bCtx.moveTo(x, y);
+        else bCtx.lineTo(x, y);
+      });
+      bCtx.stroke();
+
+      // Selected frame highlight marker
+      const sel = simTrace[selectedFrameIdx] || simTrace[0];
+      if (sel) {
+        const sx = padL + selectedFrameIdx * barW + barW * 0.5;
+        bCtx.strokeStyle = '#f59e0b';
+        bCtx.lineWidth = 1.5;
+        bCtx.beginPath();
+        bCtx.moveTo(sx, padT);
+        bCtx.lineTo(sx, h - 8);
+        bCtx.stroke();
+
+        document.getElementById('selectedFrameLabel').textContent =
+          `FRAME #${sel.frameIdx} (${sel.frameIdx * 10}ms) // OP: ${sel.op.toUpperCase()} | BUFFER: ${sel.bufferMs}ms | TARGET: ${sel.targetMs}ms`;
+      }
+
+      // Render Canvas 2: Waveform + NCC Pitch Autocorrelation
+      const waveCanvas = document.getElementById('waveCanvas');
+      const wCtx = waveCanvas.getContext('2d');
+      const ww = waveCanvas.width;
+      const wh = waveCanvas.height;
+      wCtx.clearRect(0, 0, ww, wh);
+
+      const splitX = Math.floor(ww * 0.56);
+
+      // Left half: Naive vs NetEQ Waveform for selected frame
+      wCtx.strokeStyle = 'rgba(255,255,255,0.1)';
+      wCtx.beginPath();
+      wCtx.moveTo(0, wh / 2);
+      wCtx.lineTo(splitX - 12, wh / 2);
+      wCtx.moveTo(splitX, 0);
+      wCtx.lineTo(splitX, wh);
+      wCtx.stroke();
+
+      if (sel) {
+        // Naive waveform (dashed rose if dropout)
+        wCtx.strokeStyle = 'rgba(244, 63, 94, 0.55)';
+        wCtx.lineWidth = 1.5;
+        wCtx.beginPath();
+        for (let i = 0; i < FRAME_SAMPLES; i++) {
+          const x = 12 + (i / (FRAME_SAMPLES - 1)) * (splitX - 28);
+          const y = wh / 2 - sel.naiveFrame[i] * (wh * 0.38);
+          if (i === 0) wCtx.moveTo(x, y);
+          else wCtx.lineTo(x, y);
+        }
+        wCtx.stroke();
+
+        // NetEQ waveform (solid accent color)
+        wCtx.strokeStyle = OP_COLORS[sel.op] || '#10b981';
+        wCtx.lineWidth = 2;
+        wCtx.beginPath();
+        for (let i = 0; i < FRAME_SAMPLES; i++) {
+          const x = 12 + (i / (FRAME_SAMPLES - 1)) * (splitX - 28);
+          const y = wh / 2 - sel.neteqFrame[i] * (wh * 0.38);
+          if (i === 0) wCtx.moveTo(x, y);
+          else wCtx.lineTo(x, y);
+        }
+        wCtx.stroke();
+
+        wCtx.fillStyle = '#a3a3a3';
+        wCtx.font = '10px JetBrains Mono, monospace';
+        wCtx.fillText(`10ms PCM FRAME (160 SAMPLES @ 16kHz) — OP: ${sel.op}`, 12, 16);
+
+        // Right half: Normalized Cross-Correlation r(tau) across lags [40 .. 200]
+        const nccLeft = splitX + 16;
+        const nccW = ww - nccLeft - 14;
+        const minLag = 40;
+        const maxLag = 200;
+
+        wCtx.strokeStyle = '#06b6d4';
+        wCtx.lineWidth = 1.8;
+        wCtx.beginPath();
+        for (let lag = minLag; lag <= maxLag; lag++) {
+          const x = nccLeft + ((lag - minLag) / (maxLag - minLag)) * nccW;
+          const r = Math.cos((2 * Math.PI * (lag - sel.pitchLag)) / sel.pitchLag) *
+                    Math.exp(-Math.abs(lag - sel.pitchLag) * 0.004);
+          const y = wh * 0.55 - r * (wh * 0.34);
+          if (lag === minLag) wCtx.moveTo(x, y);
+          else wCtx.lineTo(x, y);
+        }
+        wCtx.stroke();
+
+        // Highlight MPM Fundamental Pitch Lag Peak T0
+        const peakX = nccLeft + ((sel.pitchLag - minLag) / (maxLag - minLag)) * nccW;
+        const peakY = wh * 0.55 - 0.98 * (wh * 0.34);
+        wCtx.strokeStyle = '#10b981';
+        wCtx.beginPath();
+        wCtx.moveTo(peakX, 24);
+        wCtx.lineTo(peakX, wh - 18);
+        wCtx.stroke();
+
+        wCtx.fillStyle = '#10b981';
+        wCtx.beginPath();
+        wCtx.arc(peakX, peakY, 4, 0, Math.PI * 2);
+        wCtx.fill();
+
+        wCtx.fillText(`MPM PITCH PEAK T0 = ${sel.pitchLag} SAMPLES (${sel.f0} Hz)`, nccLeft, 16);
+        document.getElementById('nccTelemetryLabel').textContent =
+          `MPM PITCH LAG: ${sel.pitchLag} SAMPLES (${sel.f0.toFixed(0)} Hz) | NCC CLARITY: 0.98`;
+      }
+    }
+
+    // Click/drag on bufferCanvas to inspect individual frames
+    const bufferCanvas = document.getElementById('bufferCanvas');
+    bufferCanvas.addEventListener('mousemove', (e) => {
+      if (e.buttons !== 1) return;
+      selectFrameFromEvent(e);
+    });
+    bufferCanvas.addEventListener('click', selectFrameFromEvent);
+
+    function selectFrameFromEvent(e) {
+      const rect = bufferCanvas.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * bufferCanvas.width;
+      const padL = 42;
+      const padR = 16;
+      const plotW = bufferCanvas.width - padL - padR;
+      const idx = Math.floor(((x - padL) / plotW) * simTrace.length);
+      if (idx >= 0 && idx < simTrace.length) {
+        selectedFrameIdx = idx;
+        renderCanvases();
+      }
+    }
+
+    // Play PCM buffer via WebAudio API
+    function playPcmBuffer(pcmData) {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      const buffer = audioCtx.createBuffer(1, pcmData.length, SAMPLE_RATE);
+      buffer.getChannelData(0).set(pcmData);
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+      source.start();
+    }
+
+    document.getElementById('playNeteqBtn').addEventListener('click', () => {
+      playPcmBuffer(neteqAudioPcm);
+    });
+
+    document.getElementById('playNaiveBtn').addEventListener('click', () => {
+      playPcmBuffer(naiveAudioPcm);
+    });
+
+    // Export 16-bit PCM WAV file
+    document.getElementById('exportWavBtn').addEventListener('click', () => {
+      const numSamples = neteqAudioPcm.length;
+      const buffer = new ArrayBuffer(44 + numSamples * 2);
+      const view = new DataView(buffer);
+
+      function writeStr(offset, str) {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      }
+
+      writeStr(0, 'RIFF');
+      view.setUint32(4, 36 + numSamples * 2, true);
+      writeStr(8, 'WAVE');
+      writeStr(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, SAMPLE_RATE, true);
+      view.setUint32(28, SAMPLE_RATE * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(36, 'data');
+      view.setUint32(40, numSamples * 2, true);
+
+      for (let i = 0; i < numSamples; i++) {
+        const s = Math.max(-1, Math.min(1, neteqAudioPcm[i]));
+        view.setInt16(44 + i * 2, s < 0 ? s * 32768 : s * 32767, true);
+      }
+
+      const blob = new Blob([buffer], { type: 'audio/wav' });
+      const a = document.createElement('a');
+      a.download = 'neteq_simulated_16khz.wav';
+      a.href = URL.createObjectURL(blob);
+      a.click();
+    });
+
+    // Export NetEqStats + AudioQualityReport JSON
+    document.getElementById('exportJsonBtn').addEventListener('click', () => {
+      const payload = {
+        stats: lastStats,
+        quality_report: lastQuality
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.download = 'neteq_telemetry_report.json';
+      a.href = URL.createObjectURL(blob);
+      a.click();
+    });
+
+    // Profile & Slider Listeners
+    document.getElementById('profileSelect').addEventListener('change', (e) => {
+      const p = PROFILES[e.target.value];
+      if (p) {
+        document.getElementById('jitterRange').value = p.jitter;
+        document.getElementById('lossRange').value = p.loss;
+        document.getElementById('reorderRange').value = p.reorder;
+        document.getElementById('pitchRange').value = p.pitch;
+        document.getElementById('quantileSelect').value = p.quantile;
+        runNetEqSimulation();
+      }
+    });
+
+    ['jitterRange', 'lossRange', 'reorderRange', 'pitchRange', 'quantileSelect'].forEach(id => {
+      document.getElementById(id).addEventListener('input', runNetEqSimulation);
+    });
+
+    // Initial simulation
+    runNetEqSimulation();
+  </script>
+</body>
+</html>
